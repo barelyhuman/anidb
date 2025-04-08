@@ -1,0 +1,11 @@
+.env*
+!.env.example
+
+/data.sqlite3
+/dist
+
+/tmp
+
+.DS_Store
+
+/anidb

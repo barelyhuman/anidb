@@ -1,0 +1,10 @@
+**/.env*
+!**/.env.example
+
+**/data.sqlite3
+
+tmp
+
+**/.DS_Store
+
+/dist

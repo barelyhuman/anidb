@@ -59,12 +59,14 @@ func main() {
 		}
 		defer res.Close()
 		hasRecords := false
+		var lastScanTime time.Time
 		for res.Next() {
 			hasRecords = true
-			var data time.Time
-			res.Scan(&data)
+			res.Scan(&lastScanTime)
 		}
 		if !hasRecords {
+			Sync()
+		} else if time.Since(lastScanTime) > time.Hour*24 {
 			Sync()
 		}
 	}()

@@ -33,6 +33,23 @@
             Search
           </button>
         </fieldset>
+        <fieldset class="flex gap-2 mt-2 items-center">
+          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
+            <option value="">Select Tags</option>
+            <option></option>
+            <option></option>
+          </select>
+          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
+            <option value="">Select Status</option>
+            <option></option>
+            <option></option>
+          </select>
+          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
+            <option value="">Select Type</option>
+            <option></option>
+            <option></option>
+          </select>
+        </fieldset>
       </form>
       {{ if eq .FromSearch false}}
       <div class="absolute bottom-10 w-full flex items-center justify-center">

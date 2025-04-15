@@ -34,20 +34,59 @@
           </button>
         </fieldset>
         <fieldset class="flex gap-2 mt-2 items-center">
-          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
-            <option value="">Select Tags</option>
-            <option></option>
-            <option></option>
+          <select
+            name="tag"
+            class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100"
+            value="{{.SelectedFilters.Tag}}"
+          >
+            <option value="">Tags</option>
+            {{ $selectedOption := .SelectedFilters.Tag }} {{range .Tags}}
+            <option
+              value="{{.}}"
+              {{if
+              eq
+              $selectedOption
+              .}}
+              selected
+              aria-selected="true"
+              {{end}}
+            >
+              {{.}}
+            </option>
+            {{end}}
           </select>
-          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
-            <option value="">Select Status</option>
-            <option></option>
-            <option></option>
+          <select
+            class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100"
+            name="status"
+          >
+            <option value="">Status</option>
+            {{ $selectedOption := .SelectedFilters.Status }} {{range
+            .StatusList}}
+            <option value="{{.}}" {{if eq $selectedOption .}} selected {{end}}>
+              {{.}}
+            </option>
+            {{end}}
           </select>
-          <select class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100">
-            <option value="">Select Type</option>
-            <option></option>
-            <option></option>
+          <select
+            class="w-full h-10 border border-neutral-200 rounded-md bg-neutral-100"
+            name="type"
+            value="{{.SelectedFilters.Type}}"
+          >
+            <option value="">Type</option>
+            {{ $selectedOption := .SelectedFilters.Type }} {{range .Types}}
+            <option
+              value="{{.}}"
+              {{if
+              eq
+              $selectedOption
+              .}}
+              selected
+              aria-selected="true"
+              {{end}}
+            >
+              {{.}}
+            </option>
+            {{end}}
           </select>
         </fieldset>
       </form>

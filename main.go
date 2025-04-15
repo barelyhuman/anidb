@@ -14,6 +14,7 @@ import (
 	"github.com/barelyhuman/anidb/scraper"
 	"github.com/barelyhuman/anidb/view"
 	"github.com/barelyhuman/go/env"
+	"github.com/blockloop/scan/v2"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -31,6 +32,9 @@ func main() {
 
 	db = database.GetDB()
 	defer db.Close()
+
+	// initialize filterOptions getter
+	getFilterOptions = buildFilterQueries()
 
 	migrate.MigrateUp(db, "./migrate")
 
@@ -66,14 +70,19 @@ func main() {
 		}
 		if !hasRecords {
 			Sync()
+			// re-initialize filterOptions getter
+			getFilterOptions = buildFilterQueries()
 		} else if time.Since(lastScanTime) > time.Hour*24 {
-			Sync()
+			// re-initialize filterOptions getter
+			getFilterOptions = buildFilterQueries()
 		}
 	}()
 
 	go func() {
 		for range ticker.C {
 			Sync()
+			// re-initialize filterOptions getter
+			getFilterOptions = buildFilterQueries()
 		}
 	}()
 
@@ -94,52 +103,181 @@ type AniMeta struct {
 	Picture string
 }
 
+type FilterOptions struct {
+	Tags       []string
+	Types      []string
+	StatusList []string
+}
+
+var getFilterOptions func() FilterOptions
+
+func buildFilterQueries() func() FilterOptions {
+	tagsStmt, _ := db.Prepare("select DISTINCT(json_each.value) from master_meta, json_each(master_meta.tags) where master_meta.id in (select meta_id from anime_meta) order by json_each.value asc")
+	typeStmt, _ := db.Prepare("select distinct(type) from master_meta where master_meta.id in (select meta_id from anime_meta)")
+	statusStmt, _ := db.Prepare("select distinct(status) from master_meta where master_meta.id in (select meta_id from anime_meta)")
+	return func(tagsStmt, typeStmt, statusStmt *sql.Stmt) func() FilterOptions {
+		return func() FilterOptions {
+			tags := []string{}
+			types := []string{}
+			statusList := []string{}
+
+			tagsRows, err := tagsStmt.Query()
+			if err != nil {
+				log.Println("failed to get tags", err)
+			}
+			typeRows, err := typeStmt.Query()
+			if err != nil {
+				log.Println("failed to get types", err)
+			}
+			statusRows, err := statusStmt.Query()
+			if err != nil {
+				log.Println("failed to get status", err)
+			}
+
+			if err := scan.Rows(&tags, tagsRows); err != nil {
+				log.Println("failed to get tags", err)
+			}
+
+			if err := scan.Rows(&types, typeRows); err != nil {
+				log.Println("failed to get types", err)
+			}
+
+			if err := scan.Rows(&statusList, statusRows); err != nil {
+				log.Println("failed to get status", err)
+			}
+
+			return FilterOptions{
+				Tags:       tags,
+				Types:      types,
+				StatusList: statusList,
+			}
+		}
+	}(
+		tagsStmt,
+		typeStmt,
+		statusStmt,
+	)
+}
+
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
+	filteredTag := r.URL.Query().Get("tag")
+	filteredType := r.URL.Query().Get("type")
+	filteredStatus := r.URL.Query().Get("status")
 
 	fromSearch := false
 	aniCollection := []AniMeta{}
+
+	queryStr := QueryStringBuilder{}
+	queryStr.Query(`
+		with joined_anime as MATERIALIZED (select * from anime 
+left join anime_meta on anime_meta.anime_id = anime.id
+left join master_meta on master_meta.id = anime_meta.meta_id
+)
+	`)
+	queryStr.Query("select title,link,picture from joined_anime")
+
 	if len(q) > 0 {
 		fromSearch = true
-		stmt, _ := db.Prepare("select title,link,picture from anime_meta, json_each(anime_meta.synonyms) where json_each.value like :search_term or anime_meta.title like :search_term group by anime_meta.title,anime_meta.link")
-		re, err := stmt.Query(sql.Named("search_term", normalizeSearchTerm(q)))
-		if err != nil {
-			log.Printf("failed to execute query with error :%v", err)
-			return
+		queryStr.Query(",json_each(synonyms) where json_each.value like ").
+			Param(normalizeSearchTerm(q)).
+			Query(" or title like ").
+			Param(normalizeSearchTerm(q))
+	}
+
+	if len(filteredTag) > 0 ||
+		len(filteredStatus) > 0 ||
+		len(filteredType) > 0 {
+		fromSearch = true
+		addAnd := false
+
+		if len(q) == 0 {
+			queryStr.Query(" where")
+		} else {
+			addAnd = true
 		}
-		defer re.Close()
-		for re.Next() {
-			x := &AniMeta{}
-			re.Scan(&x.Title, &x.Link, &x.Picture)
-			x.Link = baseURL + x.Link
-			aniCollection = append(aniCollection, *x)
+
+		if len(filteredStatus) > 0 {
+			if addAnd {
+				queryStr.Query(" and ")
+			}
+			queryStr.Query(" status = ").
+				Param(filteredStatus)
+			addAnd = true
 		}
-	} else {
-		re, err := db.Query("select title,link,picture from anime_meta order by score desc limit 10")
-		if err != nil {
-			log.Printf("failed to execute query with error :%v", err)
-			return
+
+		if len(filteredTag) > 0 {
+			if addAnd {
+				queryStr.Query(" and ")
+			}
+			queryStr.Query(" meta_id in (select master_meta.id from master_meta,json_each(master_meta.tags) where json_each.value = ").
+				Param(filteredTag).
+				Query(")")
+			addAnd = true
 		}
-		defer re.Close()
-		for re.Next() {
-			x := &AniMeta{}
-			re.Scan(&x.Title, &x.Link, &x.Picture)
-			x.Link = baseURL + x.Link
-			aniCollection = append(aniCollection, *x)
+
+		if len(filteredType) > 0 {
+			if addAnd {
+				queryStr.Query(" and ")
+			}
+			queryStr.Query(" joined_anime.type = ").
+				Param(filteredType)
+			addAnd = true
 		}
 	}
 
+	queryStr.Query(" group by title,link order by score desc")
+
+	if !fromSearch {
+		queryStr.Query(" limit 20")
+	}
+
+	query, vars := queryStr.Get()
+
+	var re *sql.Rows
+	var err error
+	re, err = db.Query(query, vars...)
+	if err != nil {
+		log.Printf("failed to execute query with error :%v", err)
+		return
+	}
+	defer re.Close()
+	for re.Next() {
+		x := &AniMeta{}
+		re.Scan(&x.Title, &x.Link, &x.Picture)
+		x.Link = baseURL + x.Link
+		aniCollection = append(aniCollection, *x)
+	}
+
+	filterOptionList := getFilterOptions()
+
 	w.Header().Set("Content-Type", "text/html")
 	if err := view.Render(w, "HomePage", struct {
-		Collection []AniMeta
-		SearchTerm string
-		CSRFToken  string
-		FromSearch bool
+		Collection      []AniMeta
+		SearchTerm      string
+		CSRFToken       string
+		FromSearch      bool
+		SelectedFilters struct {
+			Tag    string
+			Type   string
+			Status string
+		}
+		FilterOptions
 	}{
-		Collection: aniCollection,
-		SearchTerm: q,
-		CSRFToken:  csrf.Token(r),
-		FromSearch: fromSearch,
+		Collection:    aniCollection,
+		SearchTerm:    q,
+		CSRFToken:     csrf.Token(r),
+		FromSearch:    fromSearch,
+		FilterOptions: filterOptionList,
+		SelectedFilters: struct {
+			Tag    string
+			Type   string
+			Status string
+		}{
+			Tag:    filteredTag,
+			Type:   filteredType,
+			Status: filteredStatus,
+		},
 	}); err != nil {
 		log.Fatal(err)
 	}

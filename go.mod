@@ -7,6 +7,7 @@ toolchain go1.23.8
 require (
 	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/barelyhuman/go v0.2.2
+	github.com/blockloop/scan/v2 v2.5.0
 	github.com/chromedp/chromedp v0.13.6
 	github.com/gorilla/csrf v1.7.2
 	github.com/gorilla/mux v1.8.1
@@ -26,4 +27,5 @@ require (
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 )

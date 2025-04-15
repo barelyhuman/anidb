@@ -48,9 +48,12 @@ func scrapeLinks(url string) (map[string]string, error) {
 		if !exists {
 			return
 		}
-		// title attribute may not be set
 		title, _ := s.Attr("title")
-		if len(title) == 0 {
+		titleFallback := s.Text()
+		if title != titleFallback {
+			title = titleFallback
+		}
+		if len(strings.TrimSpace(title)) == 0 {
 			return
 		}
 		animeDB[href] = title
